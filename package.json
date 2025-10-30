@@ -1,6 +1,6 @@
 {
   "name": "puppeteer-real-browser-mcp-server",
-  "version": "1.5.16",
+  "version": "1.5.20",
   "description": "MCP server for puppeteer-real-browser",
   "type": "module",
   "main": "dist/index.js",
@@ -57,15 +57,15 @@
     "puppeteer",
     "browser-automation"
   ],
-  "author": "withlinda13",
+  "author": "eikaramba",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/withLinda/puppeteer-real-browser-mcp-server.git"
+    "url": "git+https://github.com/eikaramba/puppeteer-real-browser-mcp-server.git"
   },
-  "homepage": "https://github.com/withLinda/puppeteer-real-browser-mcp-server",
+  "homepage": "https://github.com/eikaramba/puppeteer-real-browser-mcp-server",
   "bugs": {
-    "url": "https://github.com/withLinda/puppeteer-real-browser-mcp-server/issues"
+    "url": "https://github.com/eikaramba/puppeteer-real-browser-mcp-server/issues"
   },
   "bin": {
     "puppeteer-real-browser-mcp-server": "dist/index.js"
