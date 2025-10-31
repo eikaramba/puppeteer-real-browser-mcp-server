@@ -481,6 +481,8 @@ export async function initializeBrowser(options?: any) {
     
     if (isDocker) {
       console.error('🐳 Docker/Container environment detected');
+      // Set environment variable that puppeteer-real-browser might respect
+      process.env.PUPPETEER_DEBUGGING_PORT = '9222';
     }
     
     // Docker-specific configuration (defined once here)
@@ -541,17 +543,10 @@ export async function initializeBrowser(options?: any) {
     const isRetryAttempt = options?._isRetryAttempt ?? false;
     const useIgnoreAllFlags = options?.ignoreAllFlags ?? true;
 
+    // DO NOT set chromeFlags in customConfig - it will override puppeteer-real-browser's flags!
+    // Only use customConfig for chrome-launcher specific options like chromePath
     const chromeConfig = {
       ignoreDefaultFlags: false,
-      chromeFlags: [
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-default-apps',
-        '--start-maximized',
-        '--disable-blink-features=AutomationControlled',
-        ...dockerFlags,
-        ...(fixedPort ? [`--remote-debugging-port=${fixedPort}`] : [])
-      ],
       ...customConfig
     };
 
@@ -562,21 +557,26 @@ export async function initializeBrowser(options?: any) {
     // In Docker, we MUST NOT ignore flags - we need our custom flags to work
     const shouldIgnoreAllFlags = isDocker ? false : (options?.ignoreAllFlags ?? true);
     
+    // Build the complete args array that will be merged by puppeteer-real-browser
+    // When ignoreAllFlags: false, these args are merged into the chromeFlags array
+    const browserArgs = [
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-default-apps',
+      '--start-maximized',
+      '--disable-blink-features=AutomationControlled',
+      ...dockerFlags,
+      ...(fixedPort ? [`--remote-debugging-port=${fixedPort}`] : [])
+    ];
+    
     const connectOptions: any = {
       headless: options?.headless ?? false,
-      customConfig: chromeConfig,
+      customConfig: chromeConfig,  // Do NOT put chromeFlags here - it will override!
       turnstile: true,
       disableXvfb: options?.disableXvfb ?? true,
       ignoreAllFlags: shouldIgnoreAllFlags,
-      args: [
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-default-apps',
-        '--start-maximized',
-        '--disable-blink-features=AutomationControlled',
-        ...dockerFlags,
-        ...(fixedPort ? [`--remote-debugging-port=${fixedPort}`] : [])
-      ],
+      // The args array is critical - puppeteer-real-browser merges this into chromeFlags
+      args: browserArgs,
       connectOption: {
         defaultViewport: null,
         timeout: platform === 'win32' ? 60000 : 30000,
@@ -631,38 +631,10 @@ export async function initializeBrowser(options?: any) {
       return { strategyName, strategy };
     };
 
-    // Primary strategy: User-defined configuration
-    const debugPort = fixedPort || availablePort;
+    // Primary strategy: Use the connectOptions we built above
     const primaryStrategy = {
       strategyName: 'User-Defined Configuration',
-      strategy: {
-        executablePath: detectedChromePath,
-        headless: options?.headless ?? false,
-        turnstile: true,
-        args: [
-          "--start-maximized",
-          "--disable-blink-features=AutomationControlled",
-          ...dockerFlags,
-          ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : [])
-        ],
-        disableXvfb: true,
-        ignoreAllFlags: false,  // Set to false to respect our flags
-        customConfig: {
-          ignoreDefaultFlags: false,
-          chromeFlags: [
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-default-apps",
-            "--start-maximized",
-            "--disable-blink-features=AutomationControlled",
-            ...dockerFlags,
-            ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : [])
-          ]
-        },
-        connectOption: {
-          defaultViewport: null,
-        },
-      }
+      strategy: connectOptions
     };
 
     const connectionStrategies = [
