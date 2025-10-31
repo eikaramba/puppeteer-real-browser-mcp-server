@@ -473,6 +473,15 @@ export async function initializeBrowser(options?: any) {
     const detectedChromePath = detectChromePath();
     const customConfig = options?.customConfig ?? {};
     const platform = process.platform;
+    
+    // Docker detection - check for containerized environment (defined once at the top)
+    const isDocker = fs.existsSync('/.dockerenv') || 
+                     fs.existsSync('/run/.containerenv') ||
+                     process.env.DOCKER_CONTAINER === 'true';
+    
+    if (isDocker) {
+      console.error('🐳 Docker/Container environment detected');
+    }
 
 
     const getOptimalChromeFlags = (isWindows: boolean, isRetry: boolean = false): string[] => {
@@ -487,11 +496,6 @@ export async function initializeBrowser(options?: any) {
 
       // Add platform-specific flags only when absolutely necessary
       const platformFlags: string[] = [];
-      
-      // Docker detection - check for containerized environment
-      const isDocker = fs.existsSync('/.dockerenv') || 
-                       fs.existsSync('/run/.containerenv') ||
-                       process.env.DOCKER_CONTAINER === 'true';
       
       if (isDocker || process.platform === 'linux') {
         // Critical Docker/Linux flags for Chrome to work in containers
@@ -542,12 +546,15 @@ export async function initializeBrowser(options?: any) {
       chromeConfig.chromePath = detectedChromePath;
     }
 
+    // In Docker, we MUST NOT ignore flags - we need our custom flags to work
+    const shouldIgnoreAllFlags = isDocker ? false : (options?.ignoreAllFlags ?? true);
+    
     const connectOptions: any = {
       headless: options?.headless ?? false,
       customConfig: chromeConfig,
       turnstile: true,
       disableXvfb: options?.disableXvfb ?? true,
-      ignoreAllFlags: options?.ignoreAllFlags ?? true,
+      ignoreAllFlags: shouldIgnoreAllFlags,
       args: useIgnoreAllFlags ? [
         '--no-first-run',
         '--no-default-browser-check',
@@ -583,11 +590,6 @@ export async function initializeBrowser(options?: any) {
       console.error('⚠️  No available ports found in range 9222-9322, using system-assigned port');
     }
 
-    // Docker detection - check for containerized environment
-    const isDocker = fs.existsSync('/.dockerenv') || 
-                     fs.existsSync('/run/.containerenv') ||
-                     process.env.DOCKER_CONTAINER === 'true';
-    
     const dockerFlags = isDocker || platform === 'linux' ? [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -595,8 +597,18 @@ export async function initializeBrowser(options?: any) {
       '--disable-gpu',
       '--disable-software-rasterizer'
     ] : [];
+    
+    // Force a fixed port in Docker to avoid random port issues
+    const fixedPort = (isDocker || platform === 'linux') ? (availablePort || 9222) : null;
+    if (fixedPort) {
+      console.error(`🐳 Docker detected - forcing fixed debugging port: ${fixedPort}`);
+    }
 
     const createConnectionStrategy = (strategyName: string, modifications: any = {}) => {
+      const debugPortFlag = fixedPort 
+        ? `--remote-debugging-port=${fixedPort}`
+        : (availablePort ? `--remote-debugging-port=${availablePort}` : '--remote-debugging-port=0');
+      
       const strategy = {
         ...connectOptions,
         ...modifications,
@@ -606,7 +618,7 @@ export async function initializeBrowser(options?: any) {
           chromeFlags: [
             ...(modifications.customConfig?.chromeFlags || chromeConfig.chromeFlags),
             ...dockerFlags,
-            ...(availablePort ? [`--remote-debugging-port=${availablePort}`] : ['--remote-debugging-port=0'])
+            debugPortFlag
           ]
         }
       };
@@ -615,6 +627,7 @@ export async function initializeBrowser(options?: any) {
     };
 
     // Primary strategy: User-defined configuration
+    const debugPort = fixedPort || availablePort;
     const primaryStrategy = {
       strategyName: 'User-Defined Configuration',
       strategy: {
@@ -624,10 +637,11 @@ export async function initializeBrowser(options?: any) {
         args: [
           "--start-maximized",
           "--disable-blink-features=AutomationControlled",
-          ...dockerFlags
+          ...dockerFlags,
+          ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : [])
         ],
         disableXvfb: true,
-        ignoreAllFlags: true,
+        ignoreAllFlags: false,  // Set to false to respect our flags
         customConfig: {
           ignoreDefaultFlags: false,
           chromeFlags: [
@@ -636,7 +650,8 @@ export async function initializeBrowser(options?: any) {
             "--disable-default-apps",
             "--start-maximized",
             "--disable-blink-features=AutomationControlled",
-            ...dockerFlags
+            ...dockerFlags,
+            ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : [])
           ]
         },
         connectOption: {
