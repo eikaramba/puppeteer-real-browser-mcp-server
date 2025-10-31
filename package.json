@@ -1,6 +1,6 @@
 {
   "name": "@eikaramba/puppeteer-real-browser-mcp-server",
-  "version": "1.5.25",
+  "version": "1.5.26",
   "description": "MCP server for puppeteer-real-browser",
   "type": "module",
   "main": "dist/index.js",

@@ -482,6 +482,17 @@ export async function initializeBrowser(options?: any) {
     if (isDocker) {
       console.error('🐳 Docker/Container environment detected');
     }
+    
+    // Docker-specific configuration (defined once here)
+    const dockerFlags = isDocker || platform === 'linux' ? [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-software-rasterizer'
+    ] : [];
+    
+    const fixedPort = isDocker ? 9222 : null;
 
 
     const getOptimalChromeFlags = (isWindows: boolean, isRetry: boolean = false): string[] => {
@@ -532,13 +543,15 @@ export async function initializeBrowser(options?: any) {
 
     const chromeConfig = {
       ignoreDefaultFlags: false,
-      chromeFlags: useIgnoreAllFlags ? [
+      chromeFlags: [
         '--no-first-run',
         '--no-default-browser-check',
         '--disable-default-apps',
         '--start-maximized',
-        '--disable-blink-features=AutomationControlled'
-      ] : getOptimalChromeFlags(platform === 'win32', isRetryAttempt),
+        '--disable-blink-features=AutomationControlled',
+        ...dockerFlags,
+        ...(fixedPort ? [`--remote-debugging-port=${fixedPort}`] : [])
+      ],
       ...customConfig
     };
 
@@ -555,13 +568,15 @@ export async function initializeBrowser(options?: any) {
       turnstile: true,
       disableXvfb: options?.disableXvfb ?? true,
       ignoreAllFlags: shouldIgnoreAllFlags,
-      args: useIgnoreAllFlags ? [
+      args: [
         '--no-first-run',
         '--no-default-browser-check',
         '--disable-default-apps',
         '--start-maximized',
-        '--disable-blink-features=AutomationControlled'
-      ] : [],
+        '--disable-blink-features=AutomationControlled',
+        ...dockerFlags,
+        ...(fixedPort ? [`--remote-debugging-port=${fixedPort}`] : [])
+      ],
       connectOption: {
         defaultViewport: null,
         timeout: platform === 'win32' ? 60000 : 30000,
@@ -589,17 +604,7 @@ export async function initializeBrowser(options?: any) {
     } else {
       console.error('⚠️  No available ports found in range 9222-9322, using system-assigned port');
     }
-
-    const dockerFlags = isDocker || platform === 'linux' ? [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-software-rasterizer'
-    ] : [];
     
-    // Force a fixed port in Docker to avoid random port issues
-    const fixedPort = (isDocker || platform === 'linux') ? (availablePort || 9222) : null;
     if (fixedPort) {
       console.error(`🐳 Docker detected - forcing fixed debugging port: ${fixedPort}`);
     }
@@ -720,6 +725,7 @@ export async function initializeBrowser(options?: any) {
             console.error(`   Strategy config: ${JSON.stringify({
               headless: strategy.headless,
               ignoreAllFlags: strategy.ignoreAllFlags,
+              args: strategy.args || 'none',
               chromeFlags: strategy.customConfig?.chromeFlags || 'none',
               chromePath: strategy.customConfig?.chromePath || 'default'
             })}`);
@@ -729,6 +735,8 @@ export async function initializeBrowser(options?: any) {
               console.error('   ⏳ Waiting 3s for Chrome to initialize in container...');
               await new Promise(resolve => setTimeout(resolve, 3000));
             }
+            
+            console.error(`   🔍 Full strategy object: ${JSON.stringify(strategy, null, 2)}`);
             
             const connectResult = await connect(strategy);
             console.error(`   ✅ Connection successful with ${strategyName}`);
