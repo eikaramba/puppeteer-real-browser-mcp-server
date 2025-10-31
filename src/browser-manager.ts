@@ -545,8 +545,10 @@ export async function initializeBrowser(options?: any) {
 
     // DO NOT set chromeFlags in customConfig - it will override puppeteer-real-browser's flags!
     // Only use customConfig for chrome-launcher specific options like chromePath
+    // In Docker, set ignoreDefaultFlags: true AND set port explicitly
     const chromeConfig = {
-      ignoreDefaultFlags: false,
+      ignoreDefaultFlags: isDocker ? true : false,
+      ...(fixedPort ? { port: fixedPort } : {}),  // CRITICAL: Tell chrome-launcher to use our port
       ...customConfig
     };
 
@@ -554,8 +556,9 @@ export async function initializeBrowser(options?: any) {
       chromeConfig.chromePath = detectedChromePath;
     }
 
-    // In Docker, we MUST NOT ignore flags - we need our custom flags to work
-    const shouldIgnoreAllFlags = isDocker ? false : (options?.ignoreAllFlags ?? true);
+    // In Docker, we MUST use ignoreAllFlags: true to have full control over Chrome flags
+    // When false, puppeteer-real-browser adds its own flags which may conflict
+    const shouldIgnoreAllFlags = isDocker ? true : (options?.ignoreAllFlags ?? true);
     
     // Build the complete args array that will be merged by puppeteer-real-browser
     // When ignoreAllFlags: false, these args are merged into the chromeFlags array
@@ -619,6 +622,7 @@ export async function initializeBrowser(options?: any) {
         ...modifications,
         customConfig: {
           ...chromeConfig,
+          ...(fixedPort ? { port: fixedPort } : {}),  // Ensure port is set for chrome-launcher
           ...modifications.customConfig,
           chromeFlags: [
             ...(modifications.customConfig?.chromeFlags || chromeConfig.chromeFlags),
@@ -724,13 +728,10 @@ export async function initializeBrowser(options?: any) {
               const fallbackHost = hostTest.recommendedHost === '127.0.0.1' ? 'localhost' : '127.0.0.1';
               const fallbackStrategy = {
                 ...strategy,
-                customConfig: {
-                  ...strategy.customConfig,
-                  chromeFlags: [
-                    ...strategy.customConfig.chromeFlags.filter((flag: string) => !flag.includes('remote-debugging-address')),
-                    `--remote-debugging-address=${fallbackHost}`
-                  ]
-                }
+                args: [
+                  ...(strategy.args || []).filter((flag: string) => !flag.includes('remote-debugging-address')),
+                  `--remote-debugging-address=${fallbackHost}`
+                ]
               };
               
               console.error(`   Trying fallback with --remote-debugging-address=${fallbackHost}...`);
