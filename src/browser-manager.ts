@@ -488,6 +488,23 @@ export async function initializeBrowser(options?: any) {
       // Add platform-specific flags only when absolutely necessary
       const platformFlags: string[] = [];
       
+      // Docker detection - check for containerized environment
+      const isDocker = fs.existsSync('/.dockerenv') || 
+                       fs.existsSync('/run/.containerenv') ||
+                       process.env.DOCKER_CONTAINER === 'true';
+      
+      if (isDocker || process.platform === 'linux') {
+        // Critical Docker/Linux flags for Chrome to work in containers
+        platformFlags.push(
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-software-rasterizer'
+        );
+        console.error('🐳 Docker/Linux environment detected - adding container-safe flags');
+      }
+      
       if (isWindows) {
         // Only add Windows-specific flags if there are compatibility issues
         // Note: --no-sandbox removed for security (not needed for desktop automation)
@@ -566,6 +583,19 @@ export async function initializeBrowser(options?: any) {
       console.error('⚠️  No available ports found in range 9222-9322, using system-assigned port');
     }
 
+    // Docker detection - check for containerized environment
+    const isDocker = fs.existsSync('/.dockerenv') || 
+                     fs.existsSync('/run/.containerenv') ||
+                     process.env.DOCKER_CONTAINER === 'true';
+    
+    const dockerFlags = isDocker || platform === 'linux' ? [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-software-rasterizer'
+    ] : [];
+
     const createConnectionStrategy = (strategyName: string, modifications: any = {}) => {
       const strategy = {
         ...connectOptions,
@@ -575,6 +605,7 @@ export async function initializeBrowser(options?: any) {
           ...modifications.customConfig,
           chromeFlags: [
             ...(modifications.customConfig?.chromeFlags || chromeConfig.chromeFlags),
+            ...dockerFlags,
             ...(availablePort ? [`--remote-debugging-port=${availablePort}`] : ['--remote-debugging-port=0'])
           ]
         }
@@ -583,7 +614,7 @@ export async function initializeBrowser(options?: any) {
       return { strategyName, strategy };
     };
 
-    // Primary strategy: User-defined configuration without --no-sandbox
+    // Primary strategy: User-defined configuration
     const primaryStrategy = {
       strategyName: 'User-Defined Configuration',
       strategy: {
@@ -593,6 +624,7 @@ export async function initializeBrowser(options?: any) {
         args: [
           "--start-maximized",
           "--disable-blink-features=AutomationControlled",
+          ...dockerFlags
         ],
         disableXvfb: true,
         ignoreAllFlags: true,
@@ -604,6 +636,7 @@ export async function initializeBrowser(options?: any) {
             "--disable-default-apps",
             "--start-maximized",
             "--disable-blink-features=AutomationControlled",
+            ...dockerFlags
           ]
         },
         connectOption: {
@@ -676,6 +709,12 @@ export async function initializeBrowser(options?: any) {
               chromePath: strategy.customConfig?.chromePath || 'default'
             })}`);
             
+            // In Docker/Linux, add small delay to allow Chrome to fully initialize
+            if (isDocker || platform === 'linux') {
+              console.error('   ⏳ Waiting 3s for Chrome to initialize in container...');
+              await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+            
             const connectResult = await connect(strategy);
             console.error(`   ✅ Connection successful with ${strategyName}`);
             return connectResult;
@@ -705,7 +744,7 @@ export async function initializeBrowser(options?: any) {
             
             throw connectionError;
           }
-        }, platform === 'win32' ? 180000 : 150000, `browser-connection-${strategyName.toLowerCase().replace(/\s+/g, '-')}`);
+        }, isDocker ? 240000 : (platform === 'win32' ? 180000 : 150000), `browser-connection-${strategyName.toLowerCase().replace(/\s+/g, '-')}`);
         
         const { browser, page } = result;
 
